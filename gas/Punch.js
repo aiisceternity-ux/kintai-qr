@@ -37,11 +37,11 @@ function doGet(e) {
   }
 
   if (p.page === 'dash') {
-    if (p.key !== prop_('ADMIN_KEY')) {
-      return HtmlService.createHtmlOutput('<h1>403</h1><p>キーが違います</p>');
-    }
+    // 画面(シェル)自体はキー無しで配信してよい。中身のデータは Dashboard.js が
+    // 毎回 ADMIN_KEY を検証するので、合言葉を知らない相手には何も返らない。
+    // URLに合言葉を埋めると、共有やコピペのたびに漏れる危険があるため画面で入力させる。
     const t = HtmlService.createTemplateFromFile('dash');
-    t.key = p.key;
+    t.key = p.key || '';
     return t.evaluate()
       .setTitle('勤怠ダッシュボード')
       .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover');

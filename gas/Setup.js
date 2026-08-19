@@ -8,7 +8,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('勤怠')
     .addItem('ダッシュボードを開く', 'showDashboard')
-    .addItem('ダッシュボードのURLを表示', 'showDashboardUrl')
+    .addItem('ダッシュボードのURLと合言葉を表示', 'showDashboardUrl')
     .addItem('QRコードを発行/印刷', 'showQrDialog')
     .addSeparator()
     .addItem('先月分の給与を集計', 'menuCloseLastMonth')
@@ -224,15 +224,29 @@ function showDashboard() {
   SpreadsheetApp.getUi().showModalDialog(t.evaluate().setWidth(900).setHeight(680), '勤怠ダッシュボード');
 }
 
-/** スマホで開くためのURLを表示する。合言葉入りなので取り扱い注意 */
+/** スマホで開くためのURLと合言葉を表示する。URLに合言葉は含めない */
 function showDashboardUrl() {
-  const url = ScriptApp.getService().getUrl() + '?page=dash&key=' + prop_('ADMIN_KEY');
+  const base = ScriptApp.getService().getUrl();
+  const url = base + '?page=dash';
+  const key = prop_('ADMIN_KEY');
+
+  // getUrl() は状況により /dev（オーナー本人しか開けないテスト用URL）を返すことがある。
+  // その場合スマホでは開けないので警告する。
+  const isDev = /\/dev$/.test(base);
+  const warn = isDev
+    ? '<p style="color:#b00"><b>注意: これはテスト用の /dev URLです。</b>' +
+      'このURLはオーナー本人しか開けません。デプロイ管理から /exec で終わるURLを使ってください。</p>'
+    : '';
+
   const html = HtmlService.createHtmlOutput(
-    '<div style="font-family:-apple-system,sans-serif;font-size:13px;line-height:1.7;padding:8px">' +
-    '<p>このURLをスマホのブラウザで開くとダッシュボードが見られます。<br>' +
-    '<b>合言葉が含まれているので、共有先に注意してください。</b></p>' +
-    '<textarea style="width:100%;height:90px;font-size:12px" onclick="this.select()">' + url + '</textarea>' +
-    '<p style="color:#666">URLが漏れた場合は、スクリプトプロパティの ADMIN_KEY を変更すれば無効化できます。</p></div>'
-  ).setWidth(560).setHeight(260);
-  SpreadsheetApp.getUi().showModalDialog(html, 'ダッシュボードのURL');
+    '<div style="font-family:-apple-system,sans-serif;font-size:13px;line-height:1.8;padding:8px">' +
+    warn +
+    '<p><b>1. このURLをスマホのブラウザで開く</b></p>' +
+    '<textarea style="width:100%;height:60px;font-size:12px" onclick="this.select()">' + url + '</textarea>' +
+    '<p><b>2. 画面に出る入力欄にこの合言葉を入れる</b>（一度入れれば次回から不要）</p>' +
+    '<textarea style="width:100%;height:44px;font-size:14px" onclick="this.select()">' + key + '</textarea>' +
+    '<p style="color:#666">合言葉が漏れた場合は、プロジェクトの設定 &gt; スクリプト プロパティで ' +
+    'ADMIN_KEY を変更すれば即座に無効化できます。</p></div>'
+  ).setWidth(600).setHeight(400);
+  SpreadsheetApp.getUi().showModalDialog(html, 'ダッシュボードのURLと合言葉');
 }

@@ -69,9 +69,28 @@
          font-size:13px; margin-bottom:12px; }
   .foot { text-align:center; font-size:11px; color:var(--muted); margin-top:18px; }
   .foot a { color:var(--accent); }
+
+  #gate { position:fixed; inset:0; z-index:20; background:var(--bg); display:none;
+          flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:28px; }
+  #gate.show { display:flex; }
+  #gate h2 { font-size:17px; margin:0; }
+  #gate p { color:var(--muted); font-size:12px; margin:0; text-align:center; line-height:1.7; }
+  #gate input { font:inherit; font-size:16px; padding:12px 14px; border:1px solid var(--line);
+                border-radius:10px; background:var(--card); color:var(--fg); width:100%; max-width:340px; }
+  #gate button { font:inherit; font-size:16px; font-weight:700; padding:12px 32px; border:0;
+                 border-radius:999px; background:var(--accent); color:#fff; cursor:pointer; }
+  #gateErr { color:var(--ng); font-size:13px; min-height:18px; }
 </style>
 </head>
 <body>
+
+<div id="gate">
+  <h2>勤怠ダッシュボード</h2>
+  <p>合言葉を入力してください。<br>スプレッドシートのメニュー「勤怠」→「合言葉を表示」で確認できます。</p>
+  <input id="gateKey" type="password" placeholder="合言葉" autocomplete="current-password">
+  <button id="gateBtn">開く</button>
+  <div id="gateErr"></div>
+</div>
 
 <header>
   <h1>勤怠ダッシュボード <small id="stamp"></small></h1>
@@ -114,13 +133,42 @@
 
   <div class="foot">
     <button class="ghost" onclick="loadAll()">更新</button>
+    <button class="ghost" onclick="forgetKey()">合言葉を忘れる</button>
     <div style="margin-top:8px"><a id="sheetLink" href="#" target="_blank">スプレッドシートを開く</a></div>
   </div>
 </main>
 
 <script>
-var KEY = '<?= key ?>';
+/* 合言葉はURLに載せない。一度入力すればこの端末に保存され、次回から素通りする。
+   保存先はlocalStorageなので、共用端末で使ったら「合言葉を忘れる」を押すこと。 */
+var STORE = 'kintai_admin_key';
+var KEY = '<?= key ?>' || localStorage.getItem(STORE) || '';
 var DOW = ['日','月','火','水','木','金','土'];
+
+function showGate(msg) {
+  document.getElementById('gate').classList.add('show');
+  document.getElementById('gateErr').textContent = msg || '';
+  document.getElementById('gateKey').focus();
+}
+function hideGate() { document.getElementById('gate').classList.remove('show'); }
+function forgetKey() { localStorage.removeItem(STORE); location.reload(); }
+
+document.getElementById('gateBtn').addEventListener('click', tryKey);
+document.getElementById('gateKey').addEventListener('keydown', function (e) {
+  if (e.key === 'Enter') tryKey();
+});
+function tryKey() {
+  var v = document.getElementById('gateKey').value.trim();
+  if (!v) return;
+  document.getElementById('gateErr').textContent = '確認中...';
+  google.script.run
+    .withSuccessHandler(function (d) {
+      KEY = v; localStorage.setItem(STORE, v);
+      hideGate(); applyInit(d); loadAll();
+    })
+    .withFailureHandler(function () { showGate('合言葉が違います'); })
+    .dashInit(v);
+}
 
 // ---- タブ ----
 document.querySelectorAll('.tabs button').forEach(function (b) {
@@ -138,7 +186,15 @@ function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function 
   return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]; }); }
 
 // ---- 初期化 ----
-google.script.run.withSuccessHandler(function (d) {
+function boot() {
+  if (!KEY) { showGate(); return; }
+  google.script.run
+    .withSuccessHandler(function (d) { hideGate(); applyInit(d); loadAll(); })
+    .withFailureHandler(function () { showGate('保存されていた合言葉が使えません'); })
+    .dashInit(KEY);
+}
+
+function applyInit(d) {
   var emp = document.getElementById('selEmp');
   emp.innerHTML = d.employees.map(function (e) {
     return '<option value="' + esc(e.empId) + '">' + esc(e.name) + '</option>'; }).join('');
@@ -154,8 +210,8 @@ google.script.run.withSuccessHandler(function (d) {
   emp.addEventListener('change', loadCalendar);
   ms.addEventListener('change', loadCalendar);
   document.getElementById('sheetLink').href = d.sheetUrl;
-  loadAll();
-}).withFailureHandler(fail).dashInit(KEY);
+}
+boot();
 
 function loadAll() { loadToday(); loadAlerts(); }
 
