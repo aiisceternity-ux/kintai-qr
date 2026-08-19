@@ -7,6 +7,8 @@
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('勤怠')
+    .addItem('ダッシュボードを開く', 'showDashboard')
+    .addItem('ダッシュボードのURLを表示', 'showDashboardUrl')
     .addItem('QRコードを発行/印刷', 'showQrDialog')
     .addSeparator()
     .addItem('先月分の給与を集計', 'menuCloseLastMonth')
@@ -212,4 +214,25 @@ function menuClearTestData() {
   CacheService.getScriptCache().removeAll(
     listEmployees_().map(function (e) { return 'cd_' + e.empId; }));
   ui.alert('消去しました。\n' + CFG.SH.ATT + ': ' + a + '行\n' + CFG.SH.PAY + ': ' + p + '行\n' + CFG.SH.RAW + ': ' + r + '行');
+}
+
+
+/** スプレッドシート内でダッシュボードを開く */
+function showDashboard() {
+  const t = HtmlService.createTemplateFromFile('dash');
+  t.key = prop_('ADMIN_KEY');
+  SpreadsheetApp.getUi().showModalDialog(t.evaluate().setWidth(900).setHeight(680), '勤怠ダッシュボード');
+}
+
+/** スマホで開くためのURLを表示する。合言葉入りなので取り扱い注意 */
+function showDashboardUrl() {
+  const url = ScriptApp.getService().getUrl() + '?page=dash&key=' + prop_('ADMIN_KEY');
+  const html = HtmlService.createHtmlOutput(
+    '<div style="font-family:-apple-system,sans-serif;font-size:13px;line-height:1.7;padding:8px">' +
+    '<p>このURLをスマホのブラウザで開くとダッシュボードが見られます。<br>' +
+    '<b>合言葉が含まれているので、共有先に注意してください。</b></p>' +
+    '<textarea style="width:100%;height:90px;font-size:12px" onclick="this.select()">' + url + '</textarea>' +
+    '<p style="color:#666">URLが漏れた場合は、スクリプトプロパティの ADMIN_KEY を変更すれば無効化できます。</p></div>'
+  ).setWidth(560).setHeight(260);
+  SpreadsheetApp.getUi().showModalDialog(html, 'ダッシュボードのURL');
 }

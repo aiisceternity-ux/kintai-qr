@@ -36,6 +36,17 @@ function doGet(e) {
       .addMetaTag('viewport', 'width=device-width, initial-scale=1');
   }
 
+  if (p.page === 'dash') {
+    if (p.key !== prop_('ADMIN_KEY')) {
+      return HtmlService.createHtmlOutput('<h1>403</h1><p>キーが違います</p>');
+    }
+    const t = HtmlService.createTemplateFromFile('dash');
+    t.key = p.key;
+    return t.evaluate()
+      .setTitle('勤怠ダッシュボード')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover');
+  }
+
   // 自己診断。設定漏れを外部から確認するためのもの(氏名などの中身は出さない)
   if (p.page === 'diag') return json_(diag_());
 

@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+  :root {
+    --bg:#f5f6f8; --card:#fff; --fg:#14181d; --muted:#69727d; --line:#e3e6ea;
+    --ok:#12a150; --warn:#c77700; --ng:#d33a3a; --accent:#1b6ef3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14171c; --card:#1c2027; --fg:#eef1f5; --muted:#98a1ad; --line:#2b313a;
+            --ok:#39d17e; --warn:#e6a02a; --ng:#ff6b6b; --accent:#5a9bff; }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin:0; background:var(--bg); color:var(--fg); font-size:15px;
+         font-family:-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif; }
+  header { position:sticky; top:0; z-index:5; background:var(--card);
+           border-bottom:1px solid var(--line); padding:10px 14px calc(env(safe-area-inset-top,0px)); }
+  h1 { font-size:16px; margin:0 0 8px; display:flex; align-items:center; gap:8px; }
+  h1 small { font-weight:400; color:var(--muted); font-size:12px; margin-left:auto; }
+  .tabs { display:flex; gap:6px; }
+  .tabs button { flex:1; font:inherit; font-size:13px; padding:9px 4px; border:1px solid var(--line);
+                 background:transparent; color:var(--muted); border-radius:8px; cursor:pointer; }
+  .tabs button.on { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:700; }
+  main { padding:14px; padding-bottom:40px; max-width:900px; margin:0 auto; }
+  .pane { display:none; } .pane.on { display:block; }
+
+  .kpis { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:14px; }
+  .kpi { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 8px; text-align:center; }
+  .kpi b { display:block; font-size:26px; line-height:1.1; }
+  .kpi span { font-size:11px; color:var(--muted); }
+  .kpi.working b { color:var(--ok); } .kpi.alert b { color:var(--ng); }
+
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px;
+          padding:12px 14px; margin-bottom:8px; display:flex; align-items:center; gap:12px; }
+  .card .name { font-weight:700; }
+  .card .sub { font-size:12px; color:var(--muted); margin-top:2px; }
+  .card .right { margin-left:auto; text-align:right; flex:0 0 auto; }
+  .card .main { min-width:0; }              /* 長いバッジで氏名が折り返されるのを防ぐ */
+  .card.stack { display:block; }
+  .card.stack .reasons { margin-top:8px; display:flex; flex-wrap:wrap; gap:4px; }
+  .badge { display:inline-block; font-size:11px; font-weight:700; padding:3px 8px; border-radius:999px; }
+  .b-work { background:rgba(18,161,80,.14); color:var(--ok); }
+  .b-done { background:rgba(105,114,125,.16); color:var(--muted); }
+  .b-none { background:rgba(105,114,125,.10); color:var(--muted); }
+  .b-warn { background:rgba(211,58,58,.14); color:var(--ng); }
+  .big { font-size:17px; font-weight:700; font-variant-numeric:tabular-nums; }
+
+  .row { display:flex; gap:8px; margin-bottom:12px; }
+  select { flex:1; font:inherit; font-size:14px; padding:9px; border:1px solid var(--line);
+           border-radius:8px; background:var(--card); color:var(--fg); }
+  .ghost { font:inherit; font-size:13px; padding:9px 12px; border:1px solid var(--line);
+           border-radius:8px; background:var(--card); color:var(--fg); cursor:pointer; }
+
+  .cal { display:grid; grid-template-columns:repeat(7,1fr); gap:3px; margin-bottom:14px; }
+  .cal .h { text-align:center; font-size:11px; color:var(--muted); padding:2px 0; }
+  .cal .d { background:var(--card); border:1px solid var(--line); border-radius:6px;
+            min-height:52px; padding:3px 2px; text-align:center; }
+  .cal .d.empty { background:transparent; border-color:transparent; }
+  .cal .d .n { font-size:11px; color:var(--muted); }
+  .cal .d .w { font-size:12px; font-weight:700; margin-top:2px; font-variant-numeric:tabular-nums; }
+  .cal .d.has { border-color:var(--ok); }
+  .cal .d.warn { border-color:var(--ng); background:rgba(211,58,58,.07); }
+  .cal .d.sat .n { color:#3b82f6; } .cal .d.sun .n { color:#ef4444; }
+
+  .empty-msg { color:var(--muted); font-size:13px; text-align:center; padding:28px 10px; }
+  .err { background:rgba(211,58,58,.12); color:var(--ng); border-radius:8px; padding:10px 12px;
+         font-size:13px; margin-bottom:12px; }
+  .foot { text-align:center; font-size:11px; color:var(--muted); margin-top:18px; }
+  .foot a { color:var(--accent); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>勤怠ダッシュボード <small id="stamp"></small></h1>
+  <div class="tabs">
+    <button data-t="today" class="on">今日</button>
+    <button data-t="alert">要確認 <span id="alertN"></span></button>
+    <button data-t="cal">カレンダー</button>
+  </div>
+</header>
+
+<main>
+  <div id="err"></div>
+
+  <section class="pane on" id="p-today">
+    <div class="kpis">
+      <div class="kpi working"><b id="k-work">-</b><span>勤務中</span></div>
+      <div class="kpi"><b id="k-done">-</b><span>退勤済</span></div>
+      <div class="kpi"><b id="k-absent">-</b><span>未出勤</span></div>
+    </div>
+    <div id="todayList"><div class="empty-msg">読み込み中...</div></div>
+  </section>
+
+  <section class="pane" id="p-alert">
+    <div id="alertList"><div class="empty-msg">読み込み中...</div></div>
+  </section>
+
+  <section class="pane" id="p-cal">
+    <div class="row">
+      <select id="selEmp"></select>
+      <select id="selMonth"></select>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><b id="c-days">-</b><span>出勤日数</span></div>
+      <div class="kpi"><b id="c-work">-</b><span>総実働(h)</span></div>
+      <div class="kpi"><b id="c-ot">-</b><span>残業(h)</span></div>
+    </div>
+    <div class="cal" id="calGrid"></div>
+    <div id="calList"></div>
+  </section>
+
+  <div class="foot">
+    <button class="ghost" onclick="loadAll()">更新</button>
+    <div style="margin-top:8px"><a id="sheetLink" href="#" target="_blank">スプレッドシートを開く</a></div>
+  </div>
+</main>
+
+<script>
+var KEY = '<?= key ?>';
+var DOW = ['日','月','火','水','木','金','土'];
+
+// ---- タブ ----
+document.querySelectorAll('.tabs button').forEach(function (b) {
+  b.addEventListener('click', function () {
+    document.querySelectorAll('.tabs button').forEach(function (x) { x.classList.remove('on'); });
+    document.querySelectorAll('.pane').forEach(function (x) { x.classList.remove('on'); });
+    b.classList.add('on');
+    document.getElementById('p-' + b.dataset.t).classList.add('on');
+    if (b.dataset.t === 'cal') loadCalendar();
+  });
+});
+
+function fail(e) { document.getElementById('err').innerHTML = '<div class="err">' + esc(e.message || e) + '</div>'; }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+  return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]; }); }
+
+// ---- 初期化 ----
+google.script.run.withSuccessHandler(function (d) {
+  var emp = document.getElementById('selEmp');
+  emp.innerHTML = d.employees.map(function (e) {
+    return '<option value="' + esc(e.empId) + '">' + esc(e.name) + '</option>'; }).join('');
+  var ms = document.getElementById('selMonth'), y = +d.thisMonth.split('-')[0], m = +d.thisMonth.split('-')[1];
+  var opts = [];
+  for (var i = 0; i < 12; i++) {                       // 直近12ヶ月ぶんの選択肢
+    var mm = m - i, yy = y;
+    while (mm <= 0) { mm += 12; yy--; }
+    var v = yy + '-' + ('0' + mm).slice(-2);
+    opts.push('<option value="' + v + '">' + yy + '年' + mm + '月</option>');
+  }
+  ms.innerHTML = opts.join('');
+  emp.addEventListener('change', loadCalendar);
+  ms.addEventListener('change', loadCalendar);
+  document.getElementById('sheetLink').href = d.sheetUrl;
+  loadAll();
+}).withFailureHandler(fail).dashInit(KEY);
+
+function loadAll() { loadToday(); loadAlerts(); }
+
+// ---- 今日 ----
+function loadToday() {
+  google.script.run.withSuccessHandler(function (d) {
+    document.getElementById('k-work').textContent = d.count.working;
+    document.getElementById('k-done').textContent = d.count.done;
+    document.getElementById('k-absent').textContent = d.count.absent;
+    document.getElementById('stamp').textContent = d.date + ' ' + d.now + ' 現在';
+
+    document.getElementById('todayList').innerHTML = d.rows.length ? d.rows.map(function (r) {
+      var badge = r.status === '勤務中' ? 'b-work' : (r.status === '未出勤' ? 'b-none'
+                : (r.status === '要確認' ? 'b-warn' : 'b-done'));
+      var right = r.status === '勤務中' ? '<div class="big">' + esc(r.elapsed) + '</div><div class="sub">経過</div>'
+                : (r.work != null ? '<div class="big">' + r.work + 'h</div><div class="sub">実働</div>' : '');
+      var sub = r.in ? (r.in + (r.out ? ' 〜 ' + r.out : ' 〜')) : '打刻なし';
+      return '<div class="card"><div class="main"><div class="name">' + esc(r.name) +
+             ' <span class="badge ' + badge + '">' + esc(r.status) + '</span></div>' +
+             '<div class="sub">' + esc(sub) + '</div></div>' +
+             '<div class="right">' + right + '</div></div>';
+    }).join('') : '<div class="empty-msg">在籍中の社員がいません</div>';
+  }).withFailureHandler(fail).dashToday(KEY);
+}
+
+// ---- 要確認 ----
+function loadAlerts() {
+  google.script.run.withSuccessHandler(function (d) {
+    document.getElementById('alertN').textContent = d.total ? '(' + d.total + ')' : '';
+    document.getElementById('alertList').innerHTML = d.rows.length ? d.rows.map(function (r) {
+      // 理由は長くなりがちなので、右寄せにせず下に積む(スマホで氏名が折り返されるのを防ぐ)
+      return '<div class="card stack"><div class="name">' + esc(r.date) + ' ' + esc(r.name) +
+             '<span style="float:right;font-weight:400" class="sub">' + r.row + '行目</span></div>' +
+             '<div class="sub">' + esc(r.in || '--:--') + ' 〜 ' + esc(r.out || '--:--') +
+             (r.work != null ? '（実働 ' + r.work + 'h）' : '') + '</div>' +
+             '<div class="reasons">' + r.reason.split(' / ').map(function (x) {
+               return '<span class="badge b-warn">' + esc(x) + '</span>'; }).join('') + '</div></div>';
+    }).join('') : '<div class="empty-msg">要確認の勤怠はありません</div>';
+  }).withFailureHandler(fail).dashAlerts(KEY);
+}
+
+// ---- カレンダー ----
+function loadCalendar() {
+  var empId = document.getElementById('selEmp').value;
+  var ym = document.getElementById('selMonth').value;
+  if (!empId || !ym) return;
+  document.getElementById('calGrid').innerHTML = '';
+  google.script.run.withSuccessHandler(function (d) {
+    document.getElementById('c-days').textContent = d.summary.days;
+    document.getElementById('c-work').textContent = d.summary.work;
+    document.getElementById('c-ot').textContent = d.summary.ot;
+
+    var html = DOW.map(function (x) { return '<div class="h">' + x + '</div>'; }).join('');
+    for (var i = 0; i < d.days[0].dow; i++) html += '<div class="d empty"></div>'; // 1日までの空白
+    d.days.forEach(function (c) {
+      var cls = 'd' + (c.work ? ' has' : '') + (c.status === '要確認' ? ' warn' : '')
+              + (c.dow === 0 ? ' sun' : '') + (c.dow === 6 ? ' sat' : '');
+      html += '<div class="' + cls + '"><div class="n">' + c.day + '</div>' +
+              '<div class="w">' + (c.work ? c.work : (c.in ? '—' : '')) + '</div></div>';
+    });
+    document.getElementById('calGrid').innerHTML = html;
+
+    var rec = d.days.filter(function (c) { return c.in || c.out; });
+    document.getElementById('calList').innerHTML = rec.length ? rec.map(function (c) {
+      return '<div class="card"><div class="main"><div class="name">' + c.day + '日(' + DOW[c.dow] + ')' +
+             (c.status === '要確認' ? ' <span class="badge b-warn">要確認</span>' : '') + '</div>' +
+             '<div class="sub">' + esc(c.in || '--:--') + ' 〜 ' + esc(c.out || '--:--') + '</div></div>' +
+             '<div class="right"><div class="big">' + (c.work != null ? c.work + 'h' : '-') + '</div></div></div>';
+    }).join('') : '<div class="empty-msg">この月の打刻はありません</div>';
+  }).withFailureHandler(fail).dashCalendar(KEY, empId, ym);
+}
+
+// 「今日」タブは開いている間だけ60秒ごとに更新する
+setInterval(function () {
+  if (document.getElementById('p-today').classList.contains('on') && !document.hidden) loadToday();
+}, 60000);
+</script>
+</body>
+</html>
