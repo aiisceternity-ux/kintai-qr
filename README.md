@@ -29,7 +29,7 @@ QRコードをかざすだけで打刻、月初に前月分の給与を自動集
 ## 構成
 
 ```
-web/scan.html     打刻ページ（GitHub Pages等に置く。カメラを使うのでHTTPS必須）
+docs/index.html   打刻ページ（GitHub Pages で配信。カメラを使うのでHTTPS必須）
 gas/
   Config.js       設定（休憩ルール・割増率・列名）
   Sheets.js       データ保存層（ここだけがスプシを触る）
@@ -67,73 +67,61 @@ TZ=Asia/Tokyo node tools/verify.js .
 
 ---
 
-## セットアップ（15分）
+## この環境の構築状況
 
-### 1. スプレッドシートを作る
-新規スプレッドシートを作成 → 拡張機能 → **Apps Script**。
+すでに構築済み。URLは以下。
 
-### 2. コードを貼る
-`gas/` 内のファイルを同じ名前でGASプロジェクトに作成して貼り付ける（`.js` はサーバー上では `.gs` になる）。
-- `.gs` は「スクリプト」、`.html` は「HTML」として追加（拡張子は付けない：`scan`, `admin`）
-- `appsscript.json` は 設定 → 「`appsscript.json` マニフェスト ファイルをエディタで表示する」をON にしてから貼り替え
+| | |
+|---|---|
+| スプレッドシート | https://docs.google.com/spreadsheets/d/1XUtiTwuwumOKUeXs0-z0XNcPxmqbz2jv-7dyn13-91A/edit |
+| Apps Script | https://script.google.com/d/1c_1wFj6vR0-wSnQZv74JRae5hVOMrzPyf7nJ-fUZZx8vteLBEs0bjpUe/edit |
+| 打刻ページ | https://aiisceternity-ux.github.io/kintai-qr/ |
+| 打刻API (`/exec`) | https://script.google.com/macros/s/AKfycbyxco_-GzrY8NlzongTogpNA1GiSXZ3YNwYU55gXUv3rU1XGwuhFbB78GiM2IbIzQd4Gg/exec |
 
-> `clasp` を使うなら `clasp create --type sheets` → `gas/` の中身を `clasp push` でもよい。
+### 残りの手順
 
-### 3. 初期化
-GASエディタで **`initProject`** を実行（初回は権限承認あり）。
-これで以下が自動で用意される。
+1. **スプレッドシートを開き、メニュー「勤怠」→「初期セットアップ」を実行**
+   （初回は権限承認あり。「詳細」→「安全でないページに移動」で進む。自作スクリプトなので警告が出るのは正常）
+   → シート4枚・書式・秘密鍵・サンプル社員が用意される
+2. メニュー「勤怠」→「自動実行トリガーを設置」
+3. 「社員マスタ」に社員を登録（QRトークンは自動で入る）
+4. メニュー「勤怠」→「QRコードを発行/印刷」→ 印刷して配布
+5. 打刻ページをスマホで開いてQRをかざす
 
-- シート4枚（社員マスタ / 勤怠ログ / 給与 / 打刻生ログ）＋ 書式・入力規則
-- `QR_SECRET`（QR署名鍵）と `ADMIN_KEY` の自動生成
-- サンプル社員 A001
+> **1. を実行するまで打刻APIは 404 を返す。** GASのウェブアプリは「デプロイしたユーザーの権限で実行」される仕様のため、
+> オーナーが一度もスコープを承認していないと起動できない。承認は必ずブラウザ操作が必要（CLIでは代行できない）。
 
-実行ログに出る `ADMIN_KEY` は控えておく。
+---
 
-### 4. 社員を登録
-「社員マスタ」シートに追記する。
-
-| 社員ID | 氏名 | 雇用区分 | 時給 | 基本給 | 在籍 | QRトークン |
-|---|---|---|---|---|---|---|
-| A001 | 田中 太郎 | 時給 | 1200 | | ☑ | *(自動)* |
-| A002 | 鈴木 花子 | 月給 | | 280000 | ☑ | *(自動)* |
-
-**QRトークンは自動で入る**（編集トリガー、または `issueAllTokens` 実行時）。手で入力しないこと。
-
-### 5. ウェブアプリとしてデプロイ
-デプロイ → 新しいデプロイ → 種類「**ウェブアプリ**」
-- 次のユーザーとして実行: **自分**
-- アクセスできるユーザー: **全員**
-
-→ 発行される `https://script.google.com/macros/s/.../exec` をコピー。
-
-> 「全員」にするのは、スタッフに Google ログインを求めないため。
-> **URLを知っていても、正しい署名付きQRが無ければ打刻はできない**（`verifyToken_`）。
-
-### 6. 打刻ページを設置
-`web/scan.html` の `API_URL` に 5. のURLを貼り、**HTTPSのどこか**に置く。
-
-- GitHub Pages / Netlify / Cloudflare Pages（すべて無料）
-- 動作確認だけなら `python3 -m http.server` → `http://localhost:8000/scan.html`（localhostは安全なオリジン扱いなのでカメラが使える）
+## コードを更新するとき
 
 ```bash
-cd web && python3 -m http.server 8000
+clasp push --force                    # GASへ反映
+clasp create-deployment -d "説明"      # 新しいURLを発行する場合
+clasp redeploy <deploymentId> -d "説明" # URLを変えずに中身だけ差し替える（推奨）
+git push                              # 打刻ページ(docs/)をGitHub Pagesへ反映
 ```
 
-> **なぜGAS上でホストしないのか:** GASのHTMLは二重の sandbox iframe で配信され、その iframe に
-> `allow="camera"` が付かないため `getUserMedia` がブロックされる端末が多い。
-> `gas/scan.html`（`/exec` を開けば表示される）も同梱してあるので、手元の端末で動くなら
-> そちらを使ってもよい。動かない場合は静的ホスティング一択。
+`clasp redeploy` を使えば `/exec` URLが変わらないので、`docs/index.html` の `API_URL` を書き直さずに済む。
 
-### 7. トリガーを設置
-GASエディタで **`installTriggers`** を実行。
+> `clasp run-function` によるサーバー側の関数実行は、別途GCPプロジェクトの紐付けとApps Script APIの有効化が必要。
+> スプレッドシートのメニューから実行した方が早い。
 
-- 毎月1日 4:00 → `closeLastMonth`（前月の給与を集計）
-- 毎日 3:00 → `checkUnclosed`（退勤打刻もれを「要確認」にして通知）
-- 社員マスタの編集時 → キャッシュ破棄＋トークン発行
+---
 
-### 8. QRを配る
-スプレッドシートのメニュー **「勤怠」→「QRコードを発行/印刷」** → 印刷して配布。
-（ブラウザから開きたい場合は `.../exec?page=admin&key=控えたADMIN_KEY`）
+## ゼロから別環境に構築する場合
+
+<details>
+<summary>手順を開く</summary>
+
+1. 新規スプレッドシート → 拡張機能 → Apps Script
+2. `gas/` の中身を貼り付け（`.js` はスクリプト、`.html` はHTML、`appsscript.json` はマニフェスト）
+   - `clasp create-script --type sheets --title "勤怠管理QR" --rootDir gas` → `clasp push --force` でもよい
+3. メニュー「勤怠」→「初期セットアップ」→「自動実行トリガーを設置」
+4. デプロイ → ウェブアプリ / 実行:自分 / アクセス:全員 → `/exec` URL を取得
+5. `docs/index.html` の `API_URL` に貼り、HTTPSで配信（GitHub Pages / Netlify / `python3 -m http.server`）
+
+</details>
 
 ---
 
