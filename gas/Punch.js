@@ -66,7 +66,12 @@ function diag_() {
     const ss = ss_();
     out.sheets = ss.getSheets().map(function (s) { return s.getName(); });
     const emps = listEmployees_();
-    out.employees = { total: emps.length, active: emps.filter(function (e) { return e.active; }).length };
+    out.employees = {
+      total: emps.length,
+      active: emps.filter(function (e) { return e.active; }).length,
+      // 氏名は返さない。IDだけでは署名が作れないので打刻はできない
+      ids: emps.map(function (e) { return e.empId + (e.active ? '' : '(在籍外)'); })
+    };
     out.ok = true;
   } catch (err) {
     out.error = err.message;

@@ -15,6 +15,9 @@ function onOpen() {
     .addItem('選択した行の実働を再計算', 'recalcSelectedRows')
     .addItem('退勤もれをチェック', 'checkUnclosed')
     .addSeparator()
+    .addItem('社員を削除', 'menuDeleteEmployee')
+    .addItem('テストデータを全消去', 'menuClearTestData')
+    .addSeparator()
     .addItem('初期セットアップ', 'initProject')
     .addItem('自動実行トリガーを設置', 'installTriggers')
     .addToUi();
@@ -77,18 +80,7 @@ function initProject() {
   if (!prop_('QR_SECRET', false)) setProp_('QR_SECRET', randomKey_(48));
   if (!prop_('ADMIN_KEY', false)) setProp_('ADMIN_KEY', randomKey_(16));
 
-  // 社員が0人ならサンプルを1件入れる
-  if (listEmployees_().length === 0) {
-    const o = {};
-    o[CFG.C.EMP_ID] = 'A001';
-    o[CFG.C.EMP_NAME] = '田中 太郎';
-    o[CFG.C.EMP_TYPE] = '時給';
-    o[CFG.C.EMP_WAGE] = 1200;
-    o[CFG.C.EMP_BASE] = 0;
-    o[CFG.C.EMP_ACTIVE] = true;
-    appendRow_(CFG.SH.EMP, o);
-  }
-
+  // サンプル社員は入れない。実データと紛れて「消したのに残っている」事故の元になる。
   issueAllTokens();
 
   console.log([
@@ -180,4 +172,44 @@ function menuCloseMonth() {
   if (!/^\d{4}-\d{2}$/.test(ym)) { ui.alert('形式が違います'); return; }
   const r = closeMonth(ym);
   ui.alert(ym + ' の集計が完了しました。\n\n書き込み: ' + r.written + '件\nスキップ: ' + r.skipped + '件');
+}
+
+
+// ---- 保守用 ----
+
+/** 社員IDを指定して社員マスタから行ごと削除する */
+function menuDeleteEmployee() {
+  const ui = SpreadsheetApp.getUi();
+  const list = listEmployees_();
+  if (!list.length) { ui.alert('社員が登録されていません。'); return; }
+
+  const res = ui.prompt(
+    '社員を削除',
+    '削除する社員IDを入力してください。\n\n登録中:\n' +
+      list.map(function (e) { return '  ' + e.empId + '  ' + e.name + (e.active ? '' : '（在籍外）'); }).join('\n'),
+    ui.ButtonSet.OK_CANCEL);
+  if (res.getSelectedButton() !== ui.Button.OK) return;
+
+  const id = res.getResponseText().trim();
+  if (!id) return;
+  const n = deleteEmployeeRow_(id);
+  ui.alert(n ? (id + ' を削除しました。') : (id + ' は見つかりませんでした。'));
+}
+
+/** 勤怠ログ・給与・打刻生ログを空にする。運用開始前のテストデータ一掃用 */
+function menuClearTestData() {
+  const ui = SpreadsheetApp.getUi();
+  const res = ui.alert(
+    'テストデータを全消去',
+    '「' + CFG.SH.ATT + '」「' + CFG.SH.PAY + '」「' + CFG.SH.RAW + '」のデータ行をすべて消します。\n' +
+    '社員マスタは消しません。この操作は元に戻せません。\n\n実行しますか?',
+    ui.ButtonSet.YES_NO);
+  if (res !== ui.Button.YES) return;
+
+  const a = clearDataRows_(CFG.SH.ATT);
+  const p = clearDataRows_(CFG.SH.PAY);
+  const r = clearDataRows_(CFG.SH.RAW);
+  CacheService.getScriptCache().removeAll(
+    listEmployees_().map(function (e) { return 'cd_' + e.empId; }));
+  ui.alert('消去しました。\n' + CFG.SH.ATT + ': ' + a + '行\n' + CFG.SH.PAY + ': ' + p + '行\n' + CFG.SH.RAW + ': ' + r + '行');
 }

@@ -60,7 +60,13 @@ function rowToObj_(row, map) {
   return o;
 }
 
-/** オブジェクトを1行追記する。存在しない列名は無視される */
+/**
+ * オブジェクトを1行書き込む。存在しない列名は無視される。
+ *
+ * sh.appendRow() は「値のある最終行の次」に書くため、チェックボックスなどの入力規則で
+ * 下方に伸びたシートだと、遥か下の行に飛んで画面から見えなくなる。
+ * そこでキー列(A列)の最初の空き行を探して書く。
+ */
 function appendRow_(name, obj) {
   const sh = sheet_(name);
   const map = headerMap_(sh);
@@ -69,8 +75,40 @@ function appendRow_(name, obj) {
   for (const k in obj) {
     if (map[k] !== undefined) row[map[k]] = obj[k];
   }
-  sh.appendRow(row);
-  return sh.getLastRow();
+  const target = firstEmptyRow_(sh);
+  sh.getRange(target, 1, 1, width).setValues([row]);
+  return target;
+}
+
+/** A列が空になっている最初の行を返す(ヘッダーは除く) */
+function firstEmptyRow_(sh) {
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) return 2;
+  const keys = sh.getRange(2, 1, lastRow - 1, 1).getValues();
+  for (let i = 0; i < keys.length; i++) {
+    if (keys[i][0] === '' || keys[i][0] === null) return 2 + i;
+  }
+  return lastRow + 1;
+}
+
+/** 社員IDで行を探して削除する */
+function deleteEmployeeRow_(empId) {
+  const found = listEmployees_().filter(function (e) { return e.empId === String(empId).trim(); });
+  if (!found.length) return 0;
+  const sh = sheet_(CFG.SH.EMP);
+  // 行番号の大きい方から消さないと、削除で行がずれる
+  found.sort(function (a, b) { return b.row - a.row; }).forEach(function (e) { sh.deleteRow(e.row); });
+  clearEmployeeCache();
+  return found.length;
+}
+
+/** シートのデータ行を全消去する(ヘッダー・書式・入力規則は残す) */
+function clearDataRows_(name) {
+  const sh = sheet_(name);
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) return 0;
+  sh.getRange(2, 1, lastRow - 1, sh.getLastColumn()).clearContent();
+  return lastRow - 1;
 }
 
 /** 指定行を部分更新する。obj に無い列は触らない */

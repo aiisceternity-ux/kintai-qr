@@ -83,6 +83,20 @@ var ctx    = canvas.getContext('2d', { willReadFrequently: true });
 var busy   = false;
 var lastToken = '', lastAt = 0;
 
+/* 読み取り性能の要点
+   - カメラ全画面(1280x720=約92万画素)を毎フレーム解析すると、スマホでは1回20-80msかかり
+     体感で「なかなか反応しない」状態になる。枠内だけを切り出して 384x384 に縮小して解析する。
+   - BarcodeDetector（ネイティブ実装）が使える端末ではそちらを使う。桁違いに速い。
+   - 解析は毎フレームではなく一定間隔に間引く。 */
+var SCAN_PX = 384;
+canvas.width = SCAN_PX; canvas.height = SCAN_PX;
+var DECODE_INTERVAL_MS = 60;
+var lastDecodeAt = 0;
+var detector = null, detecting = false;
+if ('BarcodeDetector' in window) {
+  try { detector = new BarcodeDetector({ formats: ['qr_code'] }); } catch (e) { detector = null; }
+}
+
 // ---- 時計 ----
 setInterval(tick, 1000); tick();
 function tick() {
@@ -103,6 +117,7 @@ function start() {
   }).then(function (stream) {
     video.srcObject = stream;
     video.setAttribute('playsinline', true);
+    tuneCamera(stream);
     return video.play();
   }).then(function () {
     document.getElementById('start').classList.add('hide');
@@ -114,17 +129,54 @@ function start() {
   });
 }
 
+/** 連続オートフォーカスを要求する。ピントが合わないと何秒でも読めないので効果が大きい */
+function tuneCamera(stream) {
+  try {
+    var track = stream.getVideoTracks()[0];
+    if (!track.getCapabilities) return;
+    var caps = track.getCapabilities();
+    var adv = [];
+    if (caps.focusMode && caps.focusMode.indexOf('continuous') >= 0) adv.push({ focusMode: 'continuous' });
+    if (adv.length) track.applyConstraints({ advanced: adv });
+  } catch (e) { /* 非対応端末は無視 */ }
+}
+
 // ---- 読み取りループ ----
-function loop() {
-  if (video.readyState === video.HAVE_ENOUGH_DATA && !busy) {
-    canvas.width  = video.videoWidth;
-    canvas.height = video.videoHeight;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    var img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    var code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
-    if (code && code.data) onDetect(code.data.trim());
-  }
+/** 画面の白枠に対応する領域を、映像側の座標で返す(object-fit:cover を考慮) */
+function cropRect() {
+  var vw = video.videoWidth, vh = video.videoHeight;
+  var r = video.getBoundingClientRect();
+  var scale = Math.max(r.width / vw, r.height / vh); // coverの拡大率
+  var box = document.querySelector('.frame .box').getBoundingClientRect();
+  var s = Math.min(vw, vh, (box.width * 1.3) / scale); // 枠より3割広めに取って余裕を持たせる
+  return { x: (vw - s) / 2, y: (vh - s) / 2, s: s };
+}
+
+function loop(ts) {
   requestAnimationFrame(loop);
+  if (busy || video.readyState < video.HAVE_CURRENT_DATA) return;
+  if (ts - lastDecodeAt < DECODE_INTERVAL_MS) return;
+  lastDecodeAt = ts;
+
+  var c = cropRect();
+  ctx.drawImage(video, c.x, c.y, c.s, c.s, 0, 0, SCAN_PX, SCAN_PX);
+
+  if (detector) {
+    if (detecting) return;
+    detecting = true;
+    detector.detect(canvas).then(function (codes) {
+      detecting = false;
+      if (codes && codes.length) onDetect(String(codes[0].rawValue).trim());
+    }).catch(function () {
+      detecting = false;
+      detector = null; // 失敗したらjsQRに切り替える
+    });
+    return;
+  }
+
+  var img = ctx.getImageData(0, 0, SCAN_PX, SCAN_PX);
+  var code = jsQR(img.data, SCAN_PX, SCAN_PX, { inversionAttempts: 'dontInvert' });
+  if (code && code.data) onDetect(code.data.trim());
 }
 
 function onDetect(token) {
