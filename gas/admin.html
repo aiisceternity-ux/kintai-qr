@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  :root { --line:#d8d8d8; --muted:#666; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+         margin: 0; padding: 16px; color: #111; background: #fff; }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  .note { font-size: 12px; color: var(--muted); margin-bottom: 16px; line-height: 1.6; }
+  .bar { margin-bottom: 16px; }
+  button { font: inherit; padding: 8px 16px; border: 1px solid #111; background: #111;
+           color: #fff; border-radius: 6px; cursor: pointer; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+  .card { border: 1px solid var(--line); border-radius: 8px; padding: 12px; text-align: center;
+          page-break-inside: avoid; break-inside: avoid; }
+  .card .qr { display: flex; justify-content: center; margin-bottom: 8px; }
+  .card .qr img, .card .qr canvas { width: 150px !important; height: 150px !important; }
+  .id { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--muted); }
+  .name { font-size: 15px; font-weight: 700; margin-top: 2px; }
+  .empty { color: var(--muted); font-size: 13px; }
+  @media print {
+    .bar, .note, h1 { display: none; }
+    body { padding: 0; }
+    .cards { grid-template-columns: repeat(3, 1fr); }
+  }
+</style>
+</head>
+<body>
+  <h1>QRコード発行</h1>
+  <p class="note">
+    このQRを印刷して各自に配布します。中身は「社員ID＋署名」で、署名はサーバー側の秘密鍵でしか作れないため、
+    IDを推測してQRを自作しても打刻できません。<br>
+    ※紙のQRは写真で複製できます（＝代理打刻は防げません）。厳格にやるなら別途、端末固定やICカードを検討してください。
+  </p>
+  <div class="bar"><button onclick="window.print()">印刷</button></div>
+  <div class="cards" id="cards"></div>
+
+<script>
+  var employees = <?!= JSON.stringify(employees) ?>;
+  var wrap = document.getElementById('cards');
+
+  if (!employees.length) {
+    wrap.innerHTML = '<p class="empty">在籍中の社員がいません。社員マスタに追加して「在籍」にチェックを入れてください。</p>';
+  }
+
+  employees.forEach(function (e) {
+    var card = document.createElement('div');
+    card.className = 'card';
+    var qr = document.createElement('div');
+    qr.className = 'qr';
+    card.appendChild(qr);
+    card.insertAdjacentHTML('beforeend',
+      '<div class="id">' + esc(e.empId) + '</div><div class="name">' + esc(e.name) + '</div>');
+    wrap.appendChild(card);
+
+    new QRCode(qr, {
+      text: e.token,
+      width: 300, height: 300,
+      correctLevel: QRCode.CorrectLevel.M   // 印刷して多少汚れても読める
+    });
+  });
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+      return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c];
+    });
+  }
+</script>
+</body>
+</html>

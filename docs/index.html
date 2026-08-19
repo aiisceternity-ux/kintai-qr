@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>勤怠打刻</title>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<style>
+  :root { --bg:#0d0f12; --fg:#fff; --ok:#22c55e; --ng:#ef4444; --muted:#9aa3ad; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--fg); overflow: hidden;
+         font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+
+  #video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  #canvas { display: none; }
+
+  .frame { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+           pointer-events: none; }
+  .frame .box { width: min(68vw, 300px); aspect-ratio: 1; border: 3px solid rgba(255,255,255,.85);
+                border-radius: 20px; box-shadow: 0 0 0 100vmax rgba(0,0,0,.45); }
+
+  .clock { position: fixed; top: env(safe-area-inset-top, 12px); left: 0; right: 0; text-align: center;
+           padding-top: 12px; font-size: 40px; font-weight: 700; letter-spacing: 1px;
+           text-shadow: 0 2px 12px rgba(0,0,0,.8); }
+  .clock small { display: block; font-size: 13px; font-weight: 400; opacity: .8; letter-spacing: 0; }
+
+  .hint { position: fixed; bottom: calc(env(safe-area-inset-bottom, 16px) + 24px); left: 0; right: 0;
+          text-align: center; font-size: 15px; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,.8); }
+
+  /* 結果オーバーレイ */
+  #result { position: fixed; inset: 0; display: none; flex-direction: column;
+            align-items: center; justify-content: center; text-align: center; padding: 24px; z-index: 10; }
+  #result.show { display: flex; }
+  #result.ok { background: var(--ok); }
+  #result.ng { background: var(--ng); }
+  #result .type { font-size: 64px; font-weight: 800; line-height: 1.1; }
+  #result .name { font-size: 30px; font-weight: 700; margin-top: 12px; }
+  #result .time { font-size: 52px; font-weight: 800; margin-top: 8px; font-variant-numeric: tabular-nums; }
+  #result .msg  { font-size: 17px; margin-top: 16px; opacity: .95; line-height: 1.6; }
+
+  #start { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
+           justify-content: center; gap: 20px; background: var(--bg); z-index: 20; padding: 24px; text-align: center; }
+  #start.hide { display: none; }
+  #start p { color: var(--muted); font-size: 14px; margin: 0; line-height: 1.7; }
+  button { font: inherit; font-size: 18px; font-weight: 700; padding: 16px 40px; border: 0;
+           border-radius: 999px; background: #fff; color: #111; cursor: pointer; }
+</style>
+</head>
+<body>
+
+<div id="start">
+  <div style="font-size:22px;font-weight:700">勤怠打刻</div>
+  <p>カメラを起動してQRコードをかざしてください。<br>初回はカメラの利用許可を求められます。</p>
+  <button id="startBtn">カメラを起動</button>
+  <p id="startErr" style="color:#ef4444"></p>
+</div>
+
+<video id="video" playsinline muted></video>
+<canvas id="canvas"></canvas>
+
+<div class="frame"><div class="box"></div></div>
+<div class="clock"><span id="clock">--:--</span><small id="date"></small></div>
+<div class="hint">枠の中にQRコードをかざしてください</div>
+
+<div id="result">
+  <div class="type" id="rType"></div>
+  <div class="name" id="rName"></div>
+  <div class="time" id="rTime"></div>
+  <div class="msg"  id="rMsg"></div>
+</div>
+
+<script>
+/* =========================================================
+   ここにGASウェブアプリの /exec URL を貼る
+   （デプロイ > 新しいデプロイ > ウェブアプリ で発行される URL）
+   ========================================================= */
+var API_URL = 'https://script.google.com/macros/s/AKfycbyxco_-GzrY8NlzongTogpNA1GiSXZ3YNwYU55gXUv3rU1XGwuhFbB78GiM2IbIzQd4Gg/exec';
+
+var video  = document.getElementById('video');
+var canvas = document.getElementById('canvas');
+var ctx    = canvas.getContext('2d', { willReadFrequently: true });
+var busy   = false;
+var lastToken = '', lastAt = 0;
+
+// ---- 時計 ----
+setInterval(tick, 1000); tick();
+function tick() {
+  var d = new Date();
+  document.getElementById('clock').textContent =
+    pad(d.getHours()) + ':' + pad(d.getMinutes());
+  document.getElementById('date').textContent =
+    d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日(' + '日月火水木金土'[d.getDay()] + ')';
+}
+function pad(n) { return ('0' + n).slice(-2); }
+
+// ---- カメラ起動 ----
+document.getElementById('startBtn').addEventListener('click', start);
+function start() {
+  navigator.mediaDevices.getUserMedia({
+    video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+    audio: false
+  }).then(function (stream) {
+    video.srcObject = stream;
+    video.setAttribute('playsinline', true);
+    return video.play();
+  }).then(function () {
+    document.getElementById('start').classList.add('hide');
+    requestAnimationFrame(loop);
+  }).catch(function (err) {
+    document.getElementById('startErr').textContent =
+      'カメラを起動できません: ' + err.name +
+      '（HTTPSで開いているか、ブラウザのカメラ許可を確認してください）';
+  });
+}
+
+// ---- 読み取りループ ----
+function loop() {
+  if (video.readyState === video.HAVE_ENOUGH_DATA && !busy) {
+    canvas.width  = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    var img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    var code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+    if (code && code.data) onDetect(code.data.trim());
+  }
+  requestAnimationFrame(loop);
+}
+
+function onDetect(token) {
+  var now = Date.now();
+  // 同じQRが連続で写り続けるので、3秒は無視する
+  if (token === lastToken && now - lastAt < 3000) return;
+  if (!/^AT1\./.test(token)) return; // このシステムのQR以外は無視
+  lastToken = token; lastAt = now;
+  send(token);
+}
+
+// ---- 送信 ----
+function send(token) {
+  busy = true;
+  beep(880, 0.08);
+
+  fetch(API_URL, {
+    method: 'POST',
+    // text/plain にしておくとCORSプリフライトが飛ばない(GASはOPTIONSに応答できない)
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ token: token, ua: navigator.userAgent }),
+    redirect: 'follow'
+  })
+  .then(function (r) { return r.json(); })
+  .then(show)
+  .catch(function () { jsonp(token); }); // ダメならJSONPで再送
+}
+
+// CORSで弾かれる環境向けのフォールバック
+function jsonp(token) {
+  var cb = 'cb' + Date.now();
+  var s = document.createElement('script');
+  var timer = setTimeout(function () {
+    cleanup();
+    show({ ok: false, message: '通信に失敗しました。電波状況を確認してもう一度かざしてください' });
+  }, 12000);
+
+  window[cb] = function (res) { clearTimeout(timer); cleanup(); show(res); };
+  function cleanup() { delete window[cb]; if (s.parentNode) s.parentNode.removeChild(s); }
+
+  s.src = API_URL + '?token=' + encodeURIComponent(token) +
+          '&ua=' + encodeURIComponent(navigator.userAgent) + '&callback=' + cb;
+  s.onerror = function () { clearTimeout(timer); cleanup();
+    show({ ok: false, message: '通信に失敗しました。もう一度かざしてください' }); };
+  document.body.appendChild(s);
+}
+
+// ---- 結果表示 ----
+function show(res) {
+  var el = document.getElementById('result');
+  el.className = 'show ' + (res.ok ? 'ok' : 'ng');
+  document.getElementById('rType').textContent = res.ok ? res.type : '✕';
+  document.getElementById('rName').textContent = res.name ? res.name + ' さん' : '';
+  document.getElementById('rTime').textContent = res.ok ? res.time : '';
+  document.getElementById('rMsg').textContent  = res.message || '';
+
+  beep(res.ok ? 1320 : 220, res.ok ? 0.12 : 0.35);
+
+  setTimeout(function () {
+    el.className = '';
+    busy = false;
+  }, res.ok ? 2600 : 3600);
+}
+
+// ---- 音 ----
+var ac = null;
+function beep(freq, dur) {
+  try {
+    ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+    var o = ac.createOscillator(), g = ac.createGain();
+    o.frequency.value = freq; o.type = 'sine';
+    g.gain.setValueAtTime(0.25, ac.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + dur);
+    o.connect(g); g.connect(ac.destination);
+    o.start(); o.stop(ac.currentTime + dur);
+  } catch (e) { /* 音が出せない端末は黙って続行 */ }
+}
+</script>
+</body>
+</html>
