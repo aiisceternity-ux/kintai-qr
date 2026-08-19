@@ -30,11 +30,14 @@ function doGet(e) {
       return HtmlService.createHtmlOutput('<h1>403</h1><p>キーが違います</p>');
     }
     const t = HtmlService.createTemplateFromFile('admin');
-    t.employees = listEmployees_().filter(function (x) { return x.active; });
+    t.employees = listEmployees_();
     return t.evaluate()
       .setTitle('QRコード発行')
       .addMetaTag('viewport', 'width=device-width, initial-scale=1');
   }
+
+  // 自己診断。設定漏れを外部から確認するためのもの(氏名などの中身は出さない)
+  if (p.page === 'diag') return json_(diag_());
 
   if (p.token) {
     const result = punch(p.token, p.ua || '');
@@ -50,6 +53,25 @@ function doGet(e) {
     .setTitle('勤怠打刻')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/** 設定が揃っているかを返す。値そのものは返さない */
+function diag_() {
+  const out = { ok: false, sheetIdSet: false, secretSet: false, sheets: [], employees: null, error: null };
+  try {
+    out.sheetIdSet = !!prop_('SHEET_ID', false);
+    out.secretSet = !!prop_('QR_SECRET', false);
+    out.tz = CFG.TZ;
+    out.now = fmt_(new Date(), 'yyyy-MM-dd HH:mm:ss');
+    const ss = ss_();
+    out.sheets = ss.getSheets().map(function (s) { return s.getName(); });
+    const emps = listEmployees_();
+    out.employees = { total: emps.length, active: emps.filter(function (e) { return e.active; }).length };
+    out.ok = true;
+  } catch (err) {
+    out.error = err.message;
+  }
+  return out;
 }
 
 function json_(obj) {

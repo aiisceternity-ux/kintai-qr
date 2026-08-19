@@ -7,8 +7,21 @@
  * 列は「ヘッダー名」で引くので、列を挿入・並べ替えしてもコードは壊れない。
  */
 
+/**
+ * 対象スプレッドシートを返す。
+ *
+ * 【重要】getActiveSpreadsheet() は、ウェブアプリ(doGet/doPost)から匿名ユーザーに
+ * 実行された文脈では「アクティブなスプレッドシート」が存在せず null を返す。
+ * そのため必ず ID を控えて openById() で開く。ID は initProject() が保存する。
+ */
 function ss_() {
-  return SpreadsheetApp.getActiveSpreadsheet();
+  const id = prop_('SHEET_ID', false);
+  if (id) return SpreadsheetApp.openById(id);
+  const active = SpreadsheetApp.getActiveSpreadsheet();
+  if (!active) {
+    throw new Error('スプレッドシートを特定できません。メニュー「勤怠」→「初期セットアップ」を実行してください。');
+  }
+  return active;
 }
 
 function sheet_(name) {

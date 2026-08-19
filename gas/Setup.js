@@ -22,6 +22,10 @@ function onOpen() {
 
 /** シート・書式・入力規則・秘密鍵を一式そろえる。何度実行しても壊れない */
 function initProject() {
+  // ウェブアプリから開けるように、対象スプレッドシートのIDを控える(これが無いと打刻APIが動かない)
+  const active = SpreadsheetApp.getActiveSpreadsheet();
+  if (active) setProp_('SHEET_ID', active.getId());
+
   const ss = ss_();
   ss.setSpreadsheetTimeZone(CFG.TZ);
 
@@ -89,6 +93,7 @@ function initProject() {
 
   console.log([
     'セットアップ完了',
+    'SHEET_ID = ' + prop_('SHEET_ID', false),
     'ADMIN_KEY = ' + prop_('ADMIN_KEY'),
     'この後: デプロイ > 新しいデプロイ > 種類「ウェブアプリ」',
     '  次のユーザーとして実行: 自分 / アクセス: 全員',
@@ -152,7 +157,7 @@ function randomKey_(len) {
 
 function showQrDialog() {
   const t = HtmlService.createTemplateFromFile('admin');
-  t.employees = listEmployees_().filter(function (x) { return x.active; });
+  t.employees = listEmployees_();
   SpreadsheetApp.getUi().showModalDialog(
     t.evaluate().setWidth(900).setHeight(650), 'QRコード発行'
   );
