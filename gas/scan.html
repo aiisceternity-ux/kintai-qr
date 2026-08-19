@@ -42,6 +42,14 @@
   #start { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
            justify-content: center; gap: 20px; background: var(--bg); z-index: 20; padding: 24px; text-align: center; }
   #start.hide { display: none; }
+
+  .ver { position: fixed; right: 6px; bottom: 4px; font-size: 10px; color: rgba(255,255,255,.55);
+         z-index: 5; text-shadow: 0 1px 4px rgba(0,0,0,.9); }
+  #dbg { position: fixed; left: 8px; top: 90px; z-index: 6; display: none;
+         background: rgba(0,0,0,.72); color: #7dffa8; font-size: 11px; line-height: 1.5;
+         padding: 8px 10px; border-radius: 8px; font-family: ui-monospace, Menlo, monospace;
+         white-space: pre; }
+  #dbg.show { display: block; }
   #start p { color: var(--muted); font-size: 14px; margin: 0; line-height: 1.7; }
   button { font: inherit; font-size: 18px; font-weight: 700; padding: 16px 40px; border: 0;
            border-radius: 999px; background: #fff; color: #111; cursor: pointer; }
@@ -62,6 +70,8 @@
 <div class="frame"><div class="box"></div></div>
 <div class="clock"><span id="clock">--:--</span><small id="date"></small></div>
 <div class="hint">枠の中にQRコードをかざしてください</div>
+<div class="ver" id="ver"></div>
+<div id="dbg"></div>
 
 <div id="result">
   <div class="type" id="rType"></div>
@@ -74,6 +84,10 @@
 /* GASホスト版。カメラがブロックされる場合は docs/index.html を
    GitHub Pages 等に置いて使うこと(README参照) */
 var API_URL = '<?!= ScriptApp.getService().getUrl() ?>';
+
+/* 画面右下に出る版数。スマホが古いキャッシュを掴んでいないかを目視で確認するための印。
+   URLに ?debug=1 を付けると、解析エンジン・解析時間・通信時間の実測が画面に出る。 */
+var VERSION = 'v2 (crop384+BarcodeDetector)';
 
 var video  = document.getElementById('video');
 var canvas = document.getElementById('canvas');
@@ -93,6 +107,25 @@ var lastDecodeAt = 0;
 var detector = null, detecting = false;
 if ('BarcodeDetector' in window) {
   try { detector = new BarcodeDetector({ formats: ['qr_code'] }); } catch (e) { detector = null; }
+}
+
+// ---- 計測 ----
+var DEBUG = /[?&]debug=1/.test(location.search);
+var stat = { decodeMs: 0, scans: 0, apiMs: 0, engine: '-' };
+document.getElementById('ver').textContent = VERSION;
+if (DEBUG) document.getElementById('dbg').classList.add('show');
+
+function paintDbg(c) {
+  if (!DEBUG) return;
+  document.getElementById('dbg').textContent = [
+    'ver     : ' + VERSION,
+    'engine  : ' + stat.engine,
+    'camera  : ' + video.videoWidth + 'x' + video.videoHeight,
+    'crop    : ' + (c ? Math.round(c.s) : '-') + 'px → ' + SCAN_PX + 'px',
+    'decode  : ' + stat.decodeMs.toFixed(1) + ' ms/回',
+    'scans   : ' + stat.scans + ' 回',
+    'api     : ' + (stat.apiMs ? Math.round(stat.apiMs) + ' ms' : '-')
+  ].join('\n');
 }
 
 // ---- 時計 ----
@@ -159,11 +192,15 @@ function loop(ts) {
   var c = cropRect();
   ctx.drawImage(video, c.x, c.y, c.s, c.s, 0, 0, SCAN_PX, SCAN_PX);
 
+  var t0 = performance.now();
+
   if (detector) {
     if (detecting) return;
     detecting = true;
+    stat.engine = 'BarcodeDetector (ネイティブ)';
     detector.detect(canvas).then(function (codes) {
       detecting = false;
+      mark(t0, c);
       if (codes && codes.length) onDetect(String(codes[0].rawValue).trim());
     }).catch(function () {
       detecting = false;
@@ -172,9 +209,19 @@ function loop(ts) {
     return;
   }
 
+  stat.engine = 'jsQR (JavaScript)';
   var img = ctx.getImageData(0, 0, SCAN_PX, SCAN_PX);
   var code = jsQR(img.data, SCAN_PX, SCAN_PX, { inversionAttempts: 'dontInvert' });
+  mark(t0, c);
   if (code && code.data) onDetect(code.data.trim());
+}
+
+/** 解析1回あたりの所要時間を移動平均で記録する */
+function mark(t0, c) {
+  var ms = performance.now() - t0;
+  stat.scans++;
+  stat.decodeMs = stat.decodeMs ? (stat.decodeMs * 0.9 + ms * 0.1) : ms;
+  if (DEBUG && stat.scans % 5 === 0) paintDbg(c);
 }
 
 function onDetect(token) {
@@ -190,6 +237,8 @@ function onDetect(token) {
 function send(token) {
   busy = true;
   beep(880, 0.08);
+  var tSend = performance.now();
+  window.__tSend = tSend;
 
   fetch(API_URL, {
     method: 'POST',
@@ -199,7 +248,7 @@ function send(token) {
     redirect: 'follow'
   })
   .then(function (r) { return r.json(); })
-  .then(show)
+  .then(function (res) { stat.apiMs = performance.now() - window.__tSend; paintDbg(null); show(res); })
   .catch(function () { jsonp(token); }); // ダメならJSONPで再送
 }
 
@@ -212,7 +261,11 @@ function jsonp(token) {
     show({ ok: false, message: '通信に失敗しました。電波状況を確認してもう一度かざしてください' });
   }, 12000);
 
-  window[cb] = function (res) { clearTimeout(timer); cleanup(); show(res); };
+  window[cb] = function (res) {
+    clearTimeout(timer); cleanup();
+    stat.apiMs = performance.now() - window.__tSend; paintDbg(null);
+    show(res);
+  };
   function cleanup() { delete window[cb]; if (s.parentNode) s.parentNode.removeChild(s); }
 
   s.src = API_URL + '?token=' + encodeURIComponent(token) +
